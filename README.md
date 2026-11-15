@@ -100,23 +100,6 @@ The corpus is written by [`scripts/acorn-corpus-oracle.mjs`](scripts/acorn-corpu
 which runs the real acorn. It can also generate mutants (inputs with
 tokens dropped, added, replaced or swapped) for a wider run on demand.
 
-## Contributing
-
-Contributions are welcome, especially the **no** rows above. A syntax tree,
-configurable options and JSX are the big ones.
-
-- **Port, don't reinvent.** Follow acorn's function structure and call
-  order. Which error wins depends on it.
-- **Upstream is the spec.** If the port disagrees with acorn, the port is
-  wrong, even where acorn looks buggy.
-- **Every behaviour change comes with a test.** Prefer a corpus entry
-  from the oracle. Otherwise add one to
-  [`tests/reviewed_differences.rs`](tests/reviewed_differences.rs).
-- `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and
-  `cargo test` must pass.
-
-Open an issue first for anything large.
-
 ## API
 
 Positions are byte offsets into the `&str` you pass. Inside, the parser
@@ -138,6 +121,23 @@ counts UTF-16 code units, as acorn does.
 acorn-typescript plugin). `Reading::Module` reads a file from its start.
 `Reading::Script` reads a Svelte component's `<script>`, which may export
 names declared elsewhere.
+
+## Contributing
+
+Contributions are welcome, especially the **no** rows above. A syntax tree,
+configurable options and JSX are the big ones.
+
+- **Port, don't reinvent.** Follow acorn's function structure and call
+  order. Which error wins depends on it.
+- **Upstream is the spec.** If the port disagrees with acorn, the port is
+  wrong, even where acorn looks buggy.
+- **Every behaviour change comes with a test.** Prefer a corpus entry
+  from the oracle. Otherwise add one to
+  [`tests/reviewed_differences.rs`](tests/reviewed_differences.rs).
+- `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and
+  `cargo test` must pass.
+
+Open an issue first for anything large.
 
 ## License
 
