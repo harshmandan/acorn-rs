@@ -12,14 +12,11 @@ It answers one question exactly the way acorn does: **does acorn accept
 this text, and if not, which error does it throw, and where?** Same
 message, same position, same choice of which error comes first.
 
-It follows **acorn 8.19.0** ([`0e0ece7`](https://github.com/acornjs/acorn/commit/0e0ece7cc7202624d4aca531be4b515b0114b5d0))
-and **@sveltejs/acorn-typescript 1.0.13** at its source
-([`5e2e704`](https://github.com/sveltejs/acorn-typescript/commit/5e2e70417f655a70c592b55590ac24f9c995fb11)),
-pinned by commit. The minor version goes up whenever those pins move.
+Currently follows at:
+- **acorn 8.19.0** ([`0e0ece7`](https://github.com/acornjs/acorn/commit/0e0ece7cc7202624d4aca531be4b515b0114b5d0))
+- **@sveltejs/acorn-typescript 1.0.13** ([`5e2e704`](https://github.com/sveltejs/acorn-typescript/commit/5e2e70417f655a70c592b55590ac24f9c995fb11)),
 
-> **This is a partial port.** It validates and finds where things end.
-> It does not build a syntax tree yet. Contributions welcome — see
-> [what's ported](#whats-ported).
+> **This is a partial port.** It validates and finds where things end. It does not build a syntax tree yet. Contributions welcome — see [what's ported](#whats-ported).
 
 ```toml
 [dependencies]
