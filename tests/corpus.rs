@@ -19,7 +19,7 @@
 //! first and where it points by how it is written, so agreement on a
 //! corpus this wide is what "the same parser" means here.
 
-use svn_acorn::{Language, Reading, SyntaxError};
+use acorn_rs::{Language, Reading, SyntaxError};
 
 /// What acorn did. Where it failed with something other than a syntax
 /// error at an offset, that failure's own message.
@@ -48,7 +48,7 @@ fn got(text: &str, result: Result<Option<u32>, SyntaxError>, shift: u32) -> Stri
         Err(error) if error.no_position => format!("crash {}", error.message),
         Err(error) => {
             let pos = if error.column_of {
-                svn_acorn::column_as_offset(text, error.pos)
+                acorn_rs::column_as_offset(text, error.pos)
             } else {
                 error.pos
             };
@@ -77,7 +77,7 @@ fn compare_cases(cases: &[serde_json::Value], language: Language) {
                 "script",
                 got(
                     &padded,
-                    svn_acorn::parse(&padded, Reading::Script, language).map(|()| None),
+                    acorn_rs::parse(&padded, Reading::Script, language).map(|()| None),
                     1,
                 ),
             ),
@@ -85,7 +85,7 @@ fn compare_cases(cases: &[serde_json::Value], language: Language) {
                 "module",
                 got(
                     code,
-                    svn_acorn::parse(code, Reading::Module, language).map(|()| None),
+                    acorn_rs::parse(code, Reading::Module, language).map(|()| None),
                     0,
                 ),
             ),
@@ -93,7 +93,7 @@ fn compare_cases(cases: &[serde_json::Value], language: Language) {
                 "exprAt1",
                 got(
                     &padded,
-                    svn_acorn::parse_expression_at(&padded, 1, language).map(Some),
+                    acorn_rs::parse_expression_at(&padded, 1, language).map(Some),
                     1,
                 ),
             ),
@@ -101,7 +101,7 @@ fn compare_cases(cases: &[serde_json::Value], language: Language) {
                 "stmtAt1",
                 got(
                     &padded,
-                    svn_acorn::parse_statement_at(&padded, 1, language).map(Some),
+                    acorn_rs::parse_statement_at(&padded, 1, language).map(Some),
                     1,
                 ),
             ),

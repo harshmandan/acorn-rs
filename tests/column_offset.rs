@@ -10,7 +10,7 @@
 
 #![allow(clippy::expect_used)]
 
-use svn_acorn::{Language, column_as_offset_from, parse_expression_at};
+use acorn_rs::{Language, column_as_offset_from, parse_expression_at};
 
 fn byte_of_unit(source: &str, unit: usize) -> u32 {
     let mut units = 0;

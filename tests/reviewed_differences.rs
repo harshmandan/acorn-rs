@@ -1,9 +1,9 @@
 //! Inputs where the port once answered differently from acorn 8.19.0
 //! or acorn-typescript 1.0.13. What each asserts is what those answer.
 
-use svn_acorn::{Language, Reading, parse, parse_expression_at};
+use acorn_rs::{Language, Reading, parse, parse_expression_at};
 
-fn error_of<T>(result: Result<T, svn_acorn::SyntaxError>) -> Option<(String, u32)> {
+fn error_of<T>(result: Result<T, acorn_rs::SyntaxError>) -> Option<(String, u32)> {
     result.err().map(|e| (e.message, e.pos))
 }
 

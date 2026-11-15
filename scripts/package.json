@@ -1,0 +1,8 @@
+{
+	"private": true,
+	"description": "The acorn the corpus oracle answers with. Keep it at the version pinned in tests/corpus/versions.json.",
+	"type": "module",
+	"dependencies": {
+		"acorn": "8.19.0"
+	}
+}

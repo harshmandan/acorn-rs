@@ -7,7 +7,7 @@
 //! acorn's message, and neither brings the process down or runs on
 //! without end.
 
-use svn_acorn::{Language, Reading, parse, parse_expression_at};
+use acorn_rs::{Language, Reading, parse, parse_expression_at};
 
 const OUT_OF_STACK: &str = "Not enough stack space to parse input";
 
