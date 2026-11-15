@@ -10,7 +10,11 @@ repository = "https://github.com/harshmandan/acorn-rs"
 readme = "README.md"
 keywords = ["acorn", "javascript", "typescript", "parser", "svelte"]
 categories = ["parser-implementations", "development-tools"]
-include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE", "CHANGELOG.md"]
+# An allow-list, anchored to the package root: an unanchored "README.md"
+# would also match inside the upstream/ submodules. Tests, the corpus,
+# scripts and upstream/ stay out of the published crate. (An `exclude`
+# beside `include` is ignored.)
+include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/LICENSE", "/CHANGELOG.md"]
 
 [package.metadata.ported-from]
 # The sources this release follows, by commit. The test corpus in

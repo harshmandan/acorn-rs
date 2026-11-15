@@ -3,16 +3,15 @@
 // acorn-typescript's) with what the parser does with it, read the four
 // ways the Svelte compiler reads text.
 //
-//   git clone https://github.com/acornjs/acorn ../acorn
-//   git clone https://github.com/sveltejs/acorn-typescript ../acorn-typescript
+//   git submodule update --init
 //   (cd scripts && npm install)
-//   node scripts/acorn-corpus-oracle.mjs ../acorn scripts [../acorn-typescript]
+//   node scripts/acorn-corpus-oracle.mjs upstream/acorn scripts [upstream/acorn-typescript]
 //
-// Both checkouts are pinned by commit in tests/corpus/versions.json,
-// next to the corpus they answered. The script refuses a checkout at any
-// other commit, or one with changed files:
+// Both checkouts are the submodules under upstream/, pinned by commit in
+// tests/corpus/versions.json next to the corpus they answered. The script
+// refuses a checkout at any other commit, or one with changed files:
 //
-//   git -C ../acorn checkout <the pinned commit>
+//   git submodule update upstream/acorn
 //
 // To move the port to newer sources, check those out and pass --repin:
 // the pins are rewritten with the corpus, and the port has to agree with
@@ -30,9 +29,11 @@
 // its source as it stands, ahead of the last release. Build it first,
 // with any esbuild, and give it the installed acorn to load:
 //
-//   (cd ../acorn-typescript &&
+//   (cd upstream/acorn-typescript &&
 //     esbuild src/index.ts --bundle --format=esm --outfile=index.js --platform=node --external:acorn &&
-//     mkdir -p node_modules && ln -s <dir with node_modules>/node_modules/acorn node_modules/acorn)
+//     mkdir -p node_modules && ln -sfn ../../../scripts/node_modules/acorn node_modules/acorn)
+//
+// The build's files are untracked, which the submodule is set to ignore.
 //
 // With MUTANTS_DIR set it also writes javascript-mutants.json and
 // typescript-mutants.json there: every input with a few tokens dropped,

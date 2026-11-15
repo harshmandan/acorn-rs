@@ -129,6 +129,9 @@ configurable options and JSX are the big ones.
   [`tests/reviewed_differences.rs`](tests/reviewed_differences.rs).
 - `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and
   `cargo test` must pass.
+- The pinned upstream sources are submodules under `upstream/`
+  (`git submodule update --init`). The tests don't need them; reading
+  acorn's source and regenerating the corpus do.
 
 Open an issue first for anything large.
 

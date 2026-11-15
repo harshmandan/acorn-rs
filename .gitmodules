@@ -1,0 +1,8 @@
+[submodule "upstream/acorn"]
+	path = upstream/acorn
+	url = https://github.com/acornjs/acorn
+	ignore = untracked
+[submodule "upstream/acorn-typescript"]
+	path = upstream/acorn-typescript
+	url = https://github.com/sveltejs/acorn-typescript
+	ignore = untracked

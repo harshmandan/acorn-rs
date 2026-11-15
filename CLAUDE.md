@@ -17,10 +17,24 @@ buggy.
 
 ## Pins
 
-The upstream commits are pinned in three places, which must agree:
-`tests/corpus/versions.json`, `[package.metadata.ported-from]` in
-`Cargo.toml`, and the README overview. `scripts/package.json` pins the
-acorn npm version the oracle answers with.
+The upstream sources are git submodules, each at the commit the port
+follows:
+
+- `upstream/acorn` — https://github.com/acornjs/acorn
+- `upstream/acorn-typescript` — https://github.com/sveltejs/acorn-typescript
+
+Get them with `git submodule update --init`. Nothing in `cargo test`
+needs them (the corpus is committed), so CI doesn't check them out, and
+the crate's anchored `include` keeps them out of the published package.
+Both submodules ignore untracked files, so the build the oracle needs
+inside `upstream/acorn-typescript` doesn't show as a change.
+
+The same commits are copied into `tests/corpus/versions.json`,
+`[package.metadata.ported-from]` in `Cargo.toml`, and the README
+overview. `scripts/package.json` pins the acorn npm version the oracle
+answers with. `tests/pins.rs` fails if any of these disagree with the
+submodules. It reads git's index, so a staged repin is checked before
+it is committed.
 
 Versioning while `0.x`: a minor bump when the pins move or the API
 changes, a patch bump for fixes on the same pins. Every CHANGELOG entry
@@ -29,10 +43,9 @@ names its pins.
 ## Moving to newer upstream sources
 
 ```sh
-git clone https://github.com/acornjs/acorn ../acorn
-git clone https://github.com/sveltejs/acorn-typescript ../acorn-typescript
-git -C ../acorn checkout <new commit>
-git -C ../acorn-typescript checkout <new commit>
+git submodule update --init
+git -C upstream/acorn fetch && git -C upstream/acorn checkout <new commit>
+git -C upstream/acorn-typescript fetch && git -C upstream/acorn-typescript checkout <new commit>
 ```
 
 1. Set `scripts/package.json`'s `acorn` to the new acorn version, then
@@ -42,13 +55,16 @@ git -C ../acorn-typescript checkout <new commit>
 3. Rewrite the pins and the corpus together:
 
    ```sh
-   node scripts/acorn-corpus-oracle.mjs --repin ../acorn scripts ../acorn-typescript
+   node scripts/acorn-corpus-oracle.mjs --repin upstream/acorn scripts upstream/acorn-typescript
    ```
 
-4. Port the upstream changes until `cargo test` passes again. Read the
-   upstream diff between the old and new commits; that is the to-do list.
+4. Port the upstream changes until `cargo test` passes again. The
+   upstream diff between the old and new commits is the to-do list:
+   `git -C upstream/acorn diff <old>..<new>` (the old commit is the one
+   `git diff --submodule upstream` shows).
 5. Update the pins in `Cargo.toml` and the README, add a CHANGELOG entry,
-   bump the minor version.
+   bump the minor version. `git add upstream` records the new submodule
+   commits; `cargo test --test pins` confirms every pin moved together.
 
 The oracle refuses checkouts with local changes, and refuses to move
 acorn without re-answering the TypeScript corpus too.
@@ -59,7 +75,7 @@ The oracle can write mutants (inputs with tokens dropped, added, replaced
 or swapped). They are too many to keep in the repository:
 
 ```sh
-MUTANTS_DIR=/tmp/m node scripts/acorn-corpus-oracle.mjs ../acorn scripts ../acorn-typescript
+MUTANTS_DIR=/tmp/m node scripts/acorn-corpus-oracle.mjs upstream/acorn scripts upstream/acorn-typescript
 ACORN_CORPUS_EXTRA=/tmp/m/typescript-mutants.json cargo test --test corpus
 ACORN_CORPUS_EXTRA=/tmp/m/javascript-mutants.json ACORN_CORPUS_EXTRA_LANGUAGE=js cargo test --test corpus
 ```
