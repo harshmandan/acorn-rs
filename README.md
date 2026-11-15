@@ -44,35 +44,35 @@ assert_eq!(parse_expression_at("{a + b}", 1, Language::JavaScript), Ok(6));
 Settings are fixed to what the Svelte compiler passes acorn: ECMAScript
 2025, module code (always strict), parentheses kept in expressions.
 
-**yes** ported · **no** not yet · **—** not part of that package
+☑ ported · ☐ not yet · — not part of that package
 
 | Feature | acorn | acorn-typescript |
 | :-- | :-: | :-: |
-| Tokenizer: numbers, strings, escapes, templates, comments, Unicode identifiers | yes | yes |
-| Regular expression validator, with Unicode property tables | yes | — |
-| Statements, expressions, operators, optional chaining, `import()` | yes | yes |
-| `as`, `satisfies`, `!`, `<T>expr`, type arguments on calls, both readings of a leading `<` | — | yes |
-| Types: annotations, generics, mapped, tuple, conditional, function types, predicates | — | yes |
-| Interfaces, type aliases, enums, namespaces, `declare` | — | yes |
-| Patterns, destructuring, arrow parameters | yes | yes |
-| Classes: fields, static blocks, private names | yes | yes |
-| Class modifiers, parameter properties, index signatures, `abstract`, `override`, `accessor`, decorators | — | yes |
-| Modules: `import` / `export`, string names, import attributes | yes | yes |
-| Type-only imports and exports, `import x = …`, `export =`, `import defer` | — | yes |
-| Scopes and early errors: redeclarations, strict-mode names, `await` / `yield` | yes | yes |
-| Exact messages and positions, and which error comes first | yes | yes |
-| Upstream quirks that decide what is reported (e.g. errors placed at a column taken for an offset) | yes | yes |
-| `#!` line at the start of a module | yes | yes |
-| "Not enough stack space" on deep nesting, instead of a crash | yes | yes |
-| **Syntax tree output** (ESTree / TS nodes) | no | no |
-| Configurable options: other `ecmaVersion`s, `sourceType: "script"`, `allow*` flags | no | no |
-| `using` / `await using` declarations (ecmaVersion 17+) | no | no |
-| `locations`, `ranges`, `onToken`, `onComment`, `loc` on errors | no | no |
-| Public tokenizer (`acorn.tokenizer`) | no | — |
-| Plugin system (TypeScript is a built-in switch here) | no | — |
-| JSX / TSX | — | no |
-| `dts` mode (`.d.ts` files) | — | no |
-| acorn-loose, acorn-walk | no | — |
+| Tokenizer: numbers, strings, escapes, templates, comments, Unicode identifiers | ☑ | ☑ |
+| Regular expression validator, with Unicode property tables | ☑ | — |
+| Statements, expressions, operators, optional chaining, `import()` | ☑ | ☑ |
+| `as`, `satisfies`, `!`, `<T>expr`, type arguments on calls, both readings of a leading `<` | — | ☑ |
+| Types: annotations, generics, mapped, tuple, conditional, function types, predicates | — | ☑ |
+| Interfaces, type aliases, enums, namespaces, `declare` | — | ☑ |
+| Patterns, destructuring, arrow parameters | ☑ | ☑ |
+| Classes: fields, static blocks, private names | ☑ | ☑ |
+| Class modifiers, parameter properties, index signatures, `abstract`, `override`, `accessor`, decorators | — | ☑ |
+| Modules: `import` / `export`, string names, import attributes | ☑ | ☑ |
+| Type-only imports and exports, `import x = …`, `export =`, `import defer` | — | ☑ |
+| Scopes and early errors: redeclarations, strict-mode names, `await` / `yield` | ☑ | ☑ |
+| Exact messages and positions, and which error comes first | ☑ | ☑ |
+| Upstream quirks that decide what is reported (e.g. errors placed at a column taken for an offset) | ☑ | ☑ |
+| `#!` line at the start of a module | ☑ | ☑ |
+| "Not enough stack space" on deep nesting, instead of a crash | ☑ | ☑ |
+| **Syntax tree output** (ESTree / TS nodes) | ☐ | ☐ |
+| Configurable options: other `ecmaVersion`s, `sourceType: "script"`, `allow*` flags | ☐ | ☐ |
+| `using` / `await using` declarations (ecmaVersion 17+) | ☐ | ☐ |
+| `locations`, `ranges`, `onToken`, `onComment`, `loc` on errors | ☐ | ☐ |
+| Public tokenizer (`acorn.tokenizer`) | ☐ | — |
+| Plugin system (TypeScript is a built-in switch here) | ☐ | — |
+| JSX / TSX | — | ☐ |
+| `dts` mode (`.d.ts` files) | — | ☐ |
+| acorn-loose, acorn-walk | ☐ | — |
 
 ## Tests
 
@@ -124,7 +124,7 @@ names declared elsewhere.
 
 ## Contributing
 
-Contributions are welcome, especially the **no** rows above. A syntax tree,
+Contributions are welcome, especially the ☐ rows above. A syntax tree,
 configurable options and JSX are the big ones.
 
 - **Port, don't reinvent.** Follow acorn's function structure and call
