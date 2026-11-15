@@ -5,13 +5,16 @@
 //! the last `\n` before it (its constructor's `lastIndexOf("\n")`, or
 //! the compiler's `startLocation`, which agrees), and moves it past
 //! every line break it reads from there: `\r`, U+2028 and U+2029 too.
-//! Each case is the error position acorn 8.19.0 with acorn-typescript
-//! gives `parseExpressionAt(source, start)`, in UTF-16 units.
+//! Each case is the error position the pinned acorn with
+//! acorn-typescript gives `parseExpressionAt(source, start)`, in UTF-16
+//! units.
 
 #![allow(clippy::expect_used)]
 
-use acorn_rs::{Language, column_as_offset_from, parse_expression_at};
+use acorn_rs::{Language, Position, column_as_offset_from, parse_expression_at};
 
+/// The oracle's UTF-16 answer as a byte offset, worked out apart from
+/// the library so that the two check each other.
 fn byte_of_unit(source: &str, unit: usize) -> u32 {
     let mut units = 0;
     for (i, c) in source.char_indices() {
@@ -38,9 +41,11 @@ fn only_a_newline_before_the_start_begins_a_line() {
         let start = source.char_indices().nth(start).map_or(0, |(i, _)| i) as u32;
         let error = parse_expression_at(source, start, Language::TypeScript)
             .expect_err("a modifier in the wrong order");
-        assert!(error.column_of, "{source:?}");
+        let Position::ColumnOf(pos) = error.position else {
+            panic!("{source:?}: {error:?} is not at a column");
+        };
         assert_eq!(
-            column_as_offset_from(source, start, error.pos),
+            column_as_offset_from(source, start, pos),
             byte_of_unit(source, want_unit),
             "{source:?}"
         );

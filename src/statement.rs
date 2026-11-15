@@ -31,7 +31,7 @@ pub(crate) fn check_key_name(node: &Node, name: &str) -> bool {
 /// Whether a private name is declared twice in a class body. A getter
 /// and a setter of the same staticness share a name.
 pub(crate) fn is_private_name_conflicted(
-    names: &mut crate::state::Log<(String, &'static str)>,
+    names: &mut std::rc::Rc<std::collections::HashMap<String, &'static str>>,
     element: &Node,
 ) -> bool {
     let name = &element.first().name;
@@ -46,16 +46,16 @@ pub(crate) fn is_private_name_conflicted(
         } else {
             "true"
         };
-    let Some(entry) = names.last_where(|(n, _)| n == name) else {
-        names.push((name.clone(), next));
+    let Some(&declared) = names.get(name.as_str()) else {
+        std::rc::Rc::make_mut(names).insert(name.clone(), next);
         return false;
     };
     let pair = matches!(
-        (entry.1, next),
+        (declared, next),
         ("iget", "iset") | ("iset", "iget") | ("sget", "sset") | ("sset", "sget")
     );
     if pair {
-        names.push((name.clone(), "true"));
+        std::rc::Rc::make_mut(names).insert(name.clone(), "true");
         return false;
     }
     true
@@ -68,7 +68,7 @@ impl Parser {
             self.parse_statement(None, true)?;
         }
         if let Some((name, start)) = self.undefined_exports.first() {
-            return self.raise(*start as usize, format!("Export '{name}' is not defined"));
+            return self.raise(start as usize, format!("Export '{name}' is not defined"));
         }
         self.next()
     }
@@ -885,7 +885,7 @@ impl Parser {
         };
 
         self.private_name_stack.push(PrivateNames {
-            declared: crate::state::Log::new(),
+            declared: std::rc::Rc::default(),
             used: crate::state::Log::new(),
         });
         let mut had_constructor = false;
@@ -1118,9 +1118,8 @@ impl Parser {
         let Some(PrivateNames { declared, used }) = self.private_name_stack.pop() else {
             return Ok(());
         };
-        let declared = declared.to_vec();
         for (name, start) in used.to_vec() {
-            if declared.iter().any(|(n, _)| *n == name) {
+            if declared.contains_key(&name) {
                 continue;
             }
             match self.private_name_stack.last_mut() {
@@ -1232,7 +1231,7 @@ impl Parser {
         if self.ts {
             return Ok(());
         }
-        if self.exports.iter().any(|n| n == name) {
+        if self.exports.contains(name) {
             return self.raise(pos, format!("Duplicate export '{name}'"));
         }
         crate::state::add_name(&mut self.exports, name);

@@ -110,21 +110,12 @@ impl Parser {
                     i += 1;
                 }
             } else if c == 47 && self.code_at(i + 1) == 42 {
-                // A comment that closes before the line ends.
-                let mut close = i + 2;
-                let mut found = false;
-                while close + 1 < len && !is_new_line(self.code_at(close)) {
-                    if self.input[close] == 42 && self.input[close + 1] == 47 {
-                        found = true;
-                        break;
-                    }
-                    close += 1;
+                // A comment that closes before the line ends. One that
+                // runs past the line counts as its break.
+                match self.comment_close(i + 2) {
+                    Some(close) if !self.line_break_between(i + 2, close) => i = close + 2,
+                    _ => return true,
                 }
-                if !found {
-                    // One that runs past the line counts as its break.
-                    return true;
-                }
-                i = close + 2;
             } else {
                 break;
             }
@@ -407,8 +398,7 @@ impl Parser {
                 Ok(())
             }
             Bind::TsType | Bind::TsInterface => {
-                if binding == Bind::TsType && self.scope_stack[last].types.iter().any(|n| n == name)
-                {
+                if binding == Bind::TsType && self.scope_stack[last].types.contains(name) {
                     return self.raise(
                         pos as usize,
                         format!("type '{name}' has already been declared."),
@@ -418,7 +408,7 @@ impl Parser {
                 Ok(())
             }
             Bind::TsEnum | Bind::TsConstEnum => {
-                if self.scope_stack[last].enums.iter().any(|n| n == name) {
+                if self.scope_stack[last].enums.contains(name) {
                     return Ok(());
                 }
                 self.declare_name_base(name, Bind::Lexical, pos)?;
@@ -432,7 +422,7 @@ impl Parser {
     /// Whether `name` is imported where the parser stands; unless
     /// `allow_shadow`, in a namespace around it too.
     pub(crate) fn ts_has_import(&self, name: &str, allow_shadow: bool) -> bool {
-        let has = |names: &Names| names.iter().any(|n| n == name);
+        let has = |names: &Names| names.contains(name);
         match self.imports_stack.split_last() {
             Some((last, outer)) => has(last) || (!allow_shadow && outer.iter().any(has)),
             None => false,
@@ -442,10 +432,9 @@ impl Parser {
     /// Whether `name` is a type or something only an `export` sees, in
     /// any scope: then an `export { name }` needs no declaration.
     pub(crate) fn ts_exportable_without_binding(&self, name: &str) -> bool {
-        self.scope_stack.iter().any(|scope| {
-            scope.types.iter().any(|n| n == name)
-                || scope.export_only_bindings.iter().any(|n| n == name)
-        })
+        self.scope_stack
+            .iter()
+            .any(|scope| scope.types.contains(name) || scope.export_only_bindings.contains(name))
     }
 
     // --- modifiers ---

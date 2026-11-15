@@ -35,23 +35,48 @@ mod ts_types;
 use state::{ForInit, Parser, Stop};
 
 /// The error acorn throws: its message without the `(line:column)`
-/// suffix, and the byte offset it points at.
+/// suffix, and where it points.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SyntaxError {
+    /// acorn's message, without the `(line:column)` suffix.
     pub message: String,
-    pub pos: u32,
-    /// acorn-typescript places a few errors at a column number that it
-    /// takes for an offset. Where set, the error points at the offset
-    /// that equals the column of `pos` in the text the compiler parsed.
-    pub column_of: bool,
-    /// The parser failed without an offset: either it raised with
-    /// something that is none, or it broke on a node it did not have and
-    /// `message` is the JavaScript engine's own. The compiler reports
-    /// such an error with no position, and `pos` means nothing.
-    pub no_position: bool,
+    /// Where the error points.
+    pub position: Position,
 }
 
+/// Where a [`SyntaxError`] points.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Position {
+    /// A byte offset into the text given.
+    Offset(u32),
+    /// acorn-typescript placed the error at the column number of this
+    /// byte offset, taken for an offset. [`column_as_offset_from`] gives
+    /// the offset that names.
+    ColumnOf(u32),
+    /// No offset: either the parser raised with something that is none,
+    /// or it broke on a node it did not have and the message is the
+    /// JavaScript engine's own. The compiler reports such an error with
+    /// no position.
+    Unknown,
+}
+
+impl std::fmt::Display for SyntaxError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.position {
+            Position::Offset(pos) => write!(f, "{} (at byte {pos})", self.message),
+            Position::ColumnOf(pos) => {
+                write!(f, "{} (at the column of byte {pos})", self.message)
+            }
+            Position::Unknown => f.write_str(&self.message),
+        }
+    }
+}
+
+impl std::error::Error for SyntaxError {}
+
 /// A text as UTF-16 code units, with the byte offset of each.
+#[derive(Debug)]
 struct Units {
     units: std::rc::Rc<[u16]>,
     /// `byte_of[i]` is where unit `i` starts; one more entry gives the
@@ -67,6 +92,13 @@ impl Units {
     /// `text`, which starts at byte `base` of the text offsets are
     /// counted in.
     fn window(text: &str, base: u32) -> Units {
+        if text.is_ascii() {
+            let end = base + text.len() as u32;
+            return Units {
+                units: text.bytes().map(u16::from).collect(),
+                byte_of: (base..=end).collect(),
+            };
+        }
         let mut units = Vec::with_capacity(text.len());
         let mut byte_of = Vec::with_capacity(text.len() + 1);
         for (offset, c) in text.char_indices() {
@@ -94,28 +126,23 @@ impl Units {
     }
 
     fn error(&self, stop: Stop) -> SyntaxError {
-        match stop {
-            Stop::Error(raised) | Stop::StackExhausted(raised) => SyntaxError {
-                message: raised.message,
-                pos: self.byte(raised.pos),
-                column_of: raised.column_of,
-                no_position: raised.no_position,
-            },
-            Stop::Crash(message) => SyntaxError {
-                message: message.to_string(),
-                pos: 0,
-                column_of: false,
-                no_position: true,
-            },
+        let (message, position) = match stop {
+            Stop::Error(raised) | Stop::StackExhausted(raised) => {
+                let position = if raised.no_position {
+                    Position::Unknown
+                } else if raised.column_of {
+                    Position::ColumnOf(self.byte(raised.pos))
+                } else {
+                    Position::Offset(self.byte(raised.pos))
+                };
+                (raised.message, position)
+            }
+            Stop::Crash(message) => (message.to_string(), Position::Unknown),
             // Never leaves the tokenizer, which reads the template
             // again as an invalid one.
-            Stop::InvalidTemplateEscape => SyntaxError {
-                message: "Unexpected token".to_string(),
-                pos: 0,
-                column_of: false,
-                no_position: false,
-            },
-        }
+            Stop::InvalidTemplateEscape => ("Unexpected token".to_string(), Position::Offset(0)),
+        };
+        SyntaxError { message, position }
     }
 }
 
@@ -135,14 +162,39 @@ pub enum Reading {
 /// acorn with the acorn-typescript plugin for one with `lang="ts"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
+    /// acorn alone.
     JavaScript,
+    /// acorn with acorn-typescript.
     TypeScript,
 }
 
-fn parser_for(text: &Units, pos: usize, language: Language) -> Parser {
+/// A parser at unit `pos` of `text`. acorn reads a first line starting
+/// `#!` as a comment when it starts at offset zero of its input;
+/// `at_input_start` says whether `pos` is that.
+fn parser_for(text: &Units, pos: usize, at_input_start: bool, language: Language) -> Parser {
     let mut parser = Parser::new(text.units.clone(), pos);
     parser.ts = language == Language::TypeScript;
+    if at_input_start && text.units.starts_with(&[u16::from(b'#'), u16::from(b'!')]) {
+        parser.skip_line_comment(2);
+    }
     parser
+}
+
+/// `parseExpressionAt` from unit `pos`: where the expression ends, and
+/// where the token after it starts.
+fn read_expression_in(
+    text: &Units,
+    pos: usize,
+    at_input_start: bool,
+    language: Language,
+) -> Result<(u32, u32), SyntaxError> {
+    let mut parser = parser_for(text, pos, at_input_start, language);
+    parser.preserve_parens = true;
+    parser
+        .next_token()
+        .and_then(|()| parser.parse_expression(ForInit::No, None))
+        .map(|node| (text.byte(node.end), text.byte(parser.start as u32)))
+        .map_err(|stop| text.error(stop))
 }
 
 /// `acorn.parse(source)`: the error acorn throws for the program, if
@@ -152,11 +204,8 @@ fn parser_for(text: &Units, pos: usize, language: Language) -> Parser {
 /// compiler hands acorn, so a `#!` line is no comment there.
 pub fn parse(source: &str, reading: Reading, language: Language) -> Result<(), SyntaxError> {
     let text = Units::new(source);
-    let mut parser = parser_for(&text, 0, language);
+    let mut parser = parser_for(&text, 0, reading == Reading::Module, language);
     parser.forget_undefined_exports = reading == Reading::Script;
-    if reading == Reading::Module && source.starts_with("#!") {
-        parser.skip_line_comment(2);
-    }
     parser
         .next_token()
         .and_then(|()| parser.parse_top_level())
@@ -168,6 +217,9 @@ pub fn parse(source: &str, reading: Reading, language: Language) -> Result<(), S
 ///
 /// acorn reads the longest expression it can and one token past it, so
 /// an error in that next token is an error here too.
+///
+/// `pos` is a byte offset. One past the end of `source` reads from its
+/// end; one inside a character reads from the next character.
 pub fn parse_expression_at(source: &str, pos: u32, language: Language) -> Result<u32, SyntaxError> {
     Text::new(source).parse_expression_at(pos, language)
 }
@@ -176,27 +228,37 @@ pub fn parse_expression_at(source: &str, pos: u32, language: Language) -> Result
 /// `parseExpressionAt(source.slice(0, end), pos)` answers.
 ///
 /// acorn never looks behind where it starts, so only the text between
-/// the two is prepared. Offsets stay those of `source`.
+/// the two is prepared. Offsets stay those of `source`. `end` past the
+/// end of `source` is its end, and `pos` past `end` is `end`; either
+/// inside a character is the next character.
 pub fn parse_expression_within(
     source: &str,
     pos: u32,
     end: u32,
     language: Language,
 ) -> Result<u32, SyntaxError> {
-    let window = source.get(pos as usize..end as usize).unwrap_or("");
-    Text {
-        units: Units::window(window, pos),
-    }
-    .parse_expression_at(pos, language)
+    let boundary = |at: u32| {
+        let mut at = (at as usize).min(source.len());
+        while !source.is_char_boundary(at) {
+            at += 1;
+        }
+        at
+    };
+    let end = boundary(end);
+    let pos = boundary(pos).min(end);
+    let units = Units::window(&source[pos..end], pos as u32);
+    read_expression_in(&units, 0, pos == 0, language).map(|(end, _)| end)
 }
 
 /// A text prepared for reading at any number of places. Preparing it
 /// costs as much as the text is long; a read then costs what it reads.
+#[derive(Debug)]
 pub struct Text {
     units: Units,
 }
 
 impl Text {
+    /// Prepares `source`.
     pub fn new(source: &str) -> Text {
         Text {
             units: Units::new(source),
@@ -206,13 +268,7 @@ impl Text {
     /// [`parse_expression_at`] on this text.
     pub fn parse_expression_at(&self, pos: u32, language: Language) -> Result<u32, SyntaxError> {
         let text = &self.units;
-        let mut parser = parser_for(text, text.unit(pos), language);
-        parser.preserve_parens = true;
-        parser
-            .next_token()
-            .and_then(|()| parser.parse_expression(ForInit::No, None))
-            .map(|node| text.byte(node.end))
-            .map_err(|stop| text.error(stop))
+        read_expression_in(text, text.unit(pos), pos == 0, language).map(|(end, _)| end)
     }
 }
 
@@ -221,21 +277,15 @@ impl Text {
 /// where the token after it starts (acorn has read that far, comments
 /// included).
 pub fn read_expression(source: &str, language: Language) -> Result<(u32, u32), SyntaxError> {
-    let text = Units::new(source);
-    let mut parser = parser_for(&text, 0, language);
-    parser.preserve_parens = true;
-    parser
-        .next_token()
-        .and_then(|()| parser.parse_expression(ForInit::No, None))
-        .map(|node| (text.byte(node.end), text.byte(parser.start as u32)))
-        .map_err(|stop| text.error(stop))
+    read_expression_in(&Units::new(source), 0, true, language)
 }
 
 /// The compiler's `parse_statement_at`: one statement read at `pos` as
-/// a module's top-level statement. Returns where it ends.
+/// a module's top-level statement. Returns where it ends. `pos` is
+/// taken as [`parse_expression_at`] takes it.
 pub fn parse_statement_at(source: &str, pos: u32, language: Language) -> Result<u32, SyntaxError> {
     let text = Units::new(source);
-    let mut parser = parser_for(&text, text.unit(pos), language);
+    let mut parser = parser_for(&text, text.unit(pos), pos == 0, language);
     parser
         .next_token()
         .and_then(|()| parser.parse_statement(None, true))
@@ -251,12 +301,10 @@ pub fn parse_statement_at(source: &str, pos: u32, language: Language) -> Result<
 /// regular expression, so a `}` inside a regular expression, a string
 /// or a template's text closes nothing.
 ///
-/// `Err` when no such `}` is found: `true` when the tokenizer read to
-/// the end of `text`, where more text might still hold one, `false`
-/// when it stopped at something it cannot read.
-pub fn closing_brace(text: &str) -> Result<u32, bool> {
+/// `Err` when no such `}` is found, saying why.
+pub fn closing_brace(text: &str) -> Result<u32, NoClosingBrace> {
     let units = Units::new(text);
-    let mut parser = parser_for(&units, 0, Language::TypeScript);
+    let mut parser = parser_for(&units, 0, false, Language::TypeScript);
     let mut depth = 0u32;
     // The token before the current one: whether an expression could
     // start after it, and whether it is `await` or `yield`.
@@ -279,7 +327,11 @@ pub fn closing_brace(text: &str) -> Result<u32, bool> {
             // comment's start.
             let ran_out = parser.pos >= units.units.len()
                 || matches!(stop, Stop::Error(raised) if raised.message == "Unterminated comment");
-            return Err(ran_out);
+            return Err(if ran_out {
+                NoClosingBrace::EndOfText
+            } else {
+                NoClosingBrace::Unreadable
+            });
         }
         if parser.ty == token::Tok::Prefix
             && parser.value == "!"
@@ -290,7 +342,7 @@ pub fn closing_brace(text: &str) -> Result<u32, bool> {
             parser.expr_allowed = false;
         }
         match parser.ty {
-            token::Tok::Eof => return Err(true),
+            token::Tok::Eof => return Err(NoClosingBrace::EndOfText),
             token::Tok::BraceL | token::Tok::DollarBraceL => depth += 1,
             token::Tok::BraceR if depth == 0 => return Ok(units.byte(parser.start as u32)),
             token::Tok::BraceR => depth -= 1,
@@ -307,7 +359,17 @@ pub fn closing_brace(text: &str) -> Result<u32, bool> {
     }
 }
 
-/// Where an error with `column_of` set points: acorn-typescript raised
+/// Why [`closing_brace`] found no `}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoClosingBrace {
+    /// The tokenizer read to the end of the text, where more text might
+    /// still hold one.
+    EndOfText,
+    /// The tokenizer stopped at something it cannot read.
+    Unreadable,
+}
+
+/// Where an error at [`Position::ColumnOf`] points: acorn-typescript raised
 /// it at the column number of `pos`, taken for an offset into `source`.
 ///
 /// The column counts UTF-16 units from the last line break before `pos`
@@ -354,7 +416,8 @@ pub fn regexp_pattern_error(pattern: &str, flags: &str) -> Option<&'static str> 
     regexp::pattern_error(&units, flags)
 }
 
-/// What `regexp_pattern_error` answers for a pattern nested deeper than
-/// acorn has stack for. acorn reports it as it stands, not as an
-/// invalid regular expression.
-pub const REGEXP_STACK_EXHAUSTED: &str = regexp::STACK_EXHAUSTED;
+/// acorn's message for input nested deeper than it has stack for. It is
+/// also what [`regexp_pattern_error`] answers for a pattern nested that
+/// deep, which acorn reports as it stands, not as an invalid regular
+/// expression.
+pub const STACK_EXHAUSTED: &str = state::STACK_EXHAUSTED;

@@ -7,16 +7,14 @@
 //! acorn's message, and neither brings the process down or runs on
 //! without end.
 
-use acorn_rs::{Language, Reading, parse, parse_expression_at};
-
-const OUT_OF_STACK: &str = "Not enough stack space to parse input";
+use acorn_rs::{Language, Reading, STACK_EXHAUSTED, parse, parse_expression_at};
 
 fn script(code: &str, language: Language) -> Result<(), String> {
     parse(code, Reading::Script, language).map_err(|e| e.message)
 }
 
 fn out_of_stack(result: Result<(), String>) -> bool {
-    result.is_err_and(|message| message == OUT_OF_STACK)
+    result.is_err_and(|message| message == STACK_EXHAUSTED)
 }
 
 fn wrapped(open: &str, inner: &str, close: &str, depth: usize) -> String {
@@ -95,6 +93,15 @@ fn nested_regular_expression_groups_far_past_the_stack_are_an_error() {
     assert_eq!(script(&code, Language::JavaScript), Ok(()));
 }
 
+/// acorn-typescript steps over U+0085 by reading the next token again,
+/// a level deeper each time.
+#[test]
+fn a_run_of_next_line_characters_far_past_the_stack_is_an_error() {
+    let code = |run| format!("x = 1;{}y", "\u{85}".repeat(run));
+    assert!(out_of_stack(script(&code(50_000), Language::TypeScript)));
+    assert_eq!(script(&code(1_000), Language::TypeScript), Ok(()));
+}
+
 /// An attempt that may fail must not hold the error back and try the
 /// other reading: each level would then read everything inside it
 /// twice, and the work doubles with every level.
@@ -148,6 +155,32 @@ fn a_member_chain_of_any_length_is_read() {
             assert_eq!(end.map_err(|e| e.message), Ok(code.len() as u32 - 1));
         }
     }
+}
+
+/// acorn-typescript keeps a copy of the chain before it tries reading
+/// what follows as type arguments, or the chain as an arrow's
+/// parameter: the copy costs no stack either.
+#[test]
+fn a_member_chain_of_any_length_is_kept_through_an_attempted_reading() {
+    let chain = ".b".repeat(300_000);
+    for code in [
+        format!("x = a{chain} < c;"),
+        format!("x = a{chain}<T>();"),
+        format!("x = a{}<T>();", "!".repeat(300_000)),
+        format!("x = (a{chain} ? b : c);"),
+    ] {
+        assert_eq!(
+            script(&code, Language::TypeScript),
+            Ok(()),
+            "{}",
+            &code[..8]
+        );
+    }
+    let parameter = format!("(a{chain}: T) => 1");
+    assert_eq!(
+        script(&parameter, Language::TypeScript),
+        Err("Binding member expression".to_string())
+    );
 }
 
 /// acorn-typescript spends more stack on each nested expression than

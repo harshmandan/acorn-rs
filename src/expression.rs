@@ -1402,7 +1402,7 @@ impl Parser {
     }
 
     fn check_params(&mut self, node: &Node, allow_duplicates: bool) -> PResult<()> {
-        let mut names = Vec::new();
+        let mut names = std::collections::HashSet::new();
         for parameter in node.list.iter().flatten() {
             let clashes = if allow_duplicates {
                 None

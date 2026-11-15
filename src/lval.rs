@@ -129,7 +129,8 @@ impl Parser {
             // A `(a: T)` item becomes the parameter it annotates.
             for element in list.iter_mut().flatten() {
                 if element.is(Ty::TsTypeCastExpression) {
-                    *element = Self::type_cast_to_parameter(element.clone());
+                    let cast = std::mem::replace(element, Node::at(0));
+                    *element = Self::type_cast_to_parameter(cast);
                 }
             }
         }
@@ -282,7 +283,7 @@ impl Parser {
         &mut self,
         expr: &Node,
         binding: Bind,
-        mut clashes: Option<&mut Vec<String>>,
+        mut clashes: Option<&mut std::collections::HashSet<String>>,
     ) -> PResult<()> {
         // acorn-typescript looks through its wrappers to what they wrap.
         let mut expr = expr;
@@ -313,10 +314,9 @@ impl Parser {
                         );
                     }
                     if let Some(clashes) = clashes.as_deref_mut() {
-                        if clashes.contains(&expr.name) {
+                        if !clashes.insert(expr.name.clone()) {
                             return self.raise(expr.start as usize, "Argument name clash");
                         }
-                        clashes.push(expr.name.clone());
                     }
                     if binding != Bind::Outside {
                         self.declare_name(&expr.name, binding, expr.start)?;
@@ -355,7 +355,7 @@ impl Parser {
         &mut self,
         expr: &Node,
         binding: Bind,
-        mut clashes: Option<&mut Vec<String>>,
+        mut clashes: Option<&mut std::collections::HashSet<String>>,
     ) -> PResult<()> {
         match expr.ty {
             // As deep as the pattern is nested, which the parser bounds.
@@ -373,7 +373,7 @@ impl Parser {
         &mut self,
         expr: &Node,
         binding: Bind,
-        clashes: Option<&mut Vec<String>>,
+        clashes: Option<&mut std::collections::HashSet<String>>,
     ) -> PResult<()> {
         if expr.is(Ty::TsParameterProperty) {
             return self.check_lval_inner_pattern(expr.first(), binding, clashes);

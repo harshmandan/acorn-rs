@@ -86,14 +86,63 @@ pub(crate) enum Bind {
     TsImport,
 }
 
-/// A list of names that a snapshot of the parser shares until one
-/// side changes it. acorn-typescript tries a reading and takes it back
+/// A set of names, as acorn keeps one in an array it searches. A
+/// scope can hold thousands, so it is looked up by hash; the first name
+/// added is kept as well, for a catch clause's parameter.
+#[derive(Clone, Default)]
+pub(crate) struct NameList {
+    set: std::collections::HashSet<String>,
+    first: Option<String>,
+}
+
+impl NameList {
+    pub(crate) fn contains(&self, name: &str) -> bool {
+        self.set.contains(name)
+    }
+
+    pub(crate) fn first(&self) -> Option<&str> {
+        self.first.as_deref()
+    }
+}
+
+/// A [`NameList`] that a snapshot of the parser shares until one side
+/// changes it. acorn-typescript tries a reading and takes it back
 /// often; copying every scope each time would cost far more than the
 /// parse.
-pub(crate) type Names = std::rc::Rc<Vec<String>>;
+pub(crate) type Names = std::rc::Rc<NameList>;
 
 pub(crate) fn add_name(names: &mut Names, name: &str) {
-    std::rc::Rc::make_mut(names).push(name.to_string());
+    let names = std::rc::Rc::make_mut(names);
+    if names.first.is_none() {
+        names.first = Some(name.to_string());
+    }
+    if !names.set.contains(name) {
+        names.set.insert(name.to_string());
+    }
+}
+
+/// `undefinedExports`: names exported before any declaration of them,
+/// keyed by name, and reported in the order the object's keys come:
+/// the order they were first added since they were last deleted.
+#[derive(Clone, Default)]
+pub(crate) struct UndefinedExports {
+    /// Name to (when it was added, where it was exported).
+    names: std::collections::HashMap<String, (u64, u32)>,
+    added: u64,
+}
+
+impl UndefinedExports {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.names.is_empty()
+    }
+
+    /// The first key: the name to report, and where.
+    pub(crate) fn first(&self) -> Option<(&str, u32)> {
+        self.names
+            .iter()
+            .min_by_key(|(_, (added, _))| *added)
+            .map(|(name, (_, pos))| (name.as_str(), *pos))
+    }
 }
 
 #[derive(Clone)]
@@ -208,7 +257,7 @@ pub(crate) enum Lit {
 /// - `MethodDefinition`, `PropertyDefinition`: `a` key, `b` value,
 ///   `name` kind, `computed`, `is_static`
 /// - `ExportSpecifier`: `a` local, `b` exported
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct Node {
     pub ty: Ty,
     pub start: u32,
@@ -250,7 +299,50 @@ impl Drop for Node {
     }
 }
 
+/// Copied link by link along `a` for the same reason: acorn-typescript
+/// keeps a copy of a whole member chain before it tries type arguments
+/// after it.
+impl Clone for Node {
+    fn clone(&self) -> Node {
+        let mut chain = vec![self];
+        while let Some(next) = chain.last().and_then(|node| node.a.as_deref()) {
+            chain.push(next);
+        }
+        let mut copied: Option<Box<Node>> = None;
+        for node in chain.into_iter().rev() {
+            copied = Some(Box::new(node.clone_without_a(copied.take())));
+        }
+        copied.map_or_else(|| self.clone_without_a(None), |node| *node)
+    }
+}
+
 impl Node {
+    /// A copy of this node alone, with `a` in place of its own.
+    fn clone_without_a(&self, a: Option<Box<Node>>) -> Node {
+        Node {
+            ty: self.ty,
+            start: self.start,
+            end: self.end,
+            name: self.name.clone(),
+            string: self.string.clone(),
+            computed: self.computed,
+            method: self.method,
+            shorthand: self.shorthand,
+            is_static: self.is_static,
+            optional: self.optional,
+            finished: self.finished,
+            lit: self.lit,
+            modifiers: self.modifiers.clone(),
+            accessibility: self.accessibility.clone(),
+            annotation: self.annotation,
+            has_body: self.has_body,
+            has_type_arguments: self.has_type_arguments,
+            a,
+            b: self.b.clone(),
+            list: self.list.clone(),
+        }
+    }
+
     pub(crate) fn at(start: u32) -> Node {
         Node {
             ty: Ty::Other,
@@ -375,14 +467,6 @@ impl<T: Clone> Log<T> {
     }
 
     /// The last item `wanted` picks.
-    pub(crate) fn last_where(&self, wanted: impl Fn(&T) -> bool) -> Option<T> {
-        self.items.borrow()[..self.len.min(self.items.borrow().len())]
-            .iter()
-            .rev()
-            .find(|item| wanted(item))
-            .cloned()
-    }
-
     pub(crate) fn to_vec(&self) -> Vec<T> {
         let items = self.items.borrow();
         items[..self.len.min(items.len())].to_vec()
@@ -393,8 +477,8 @@ impl<T: Clone> Log<T> {
 #[derive(Clone)]
 pub(crate) struct PrivateNames {
     /// Declared names, with what declared them (`"true"`, `"iget"`, …).
-    /// A name's last entry is what holds of it.
-    pub declared: Log<(String, &'static str)>,
+    /// Shared with a snapshot until one side declares another.
+    pub declared: std::rc::Rc<std::collections::HashMap<String, &'static str>>,
     /// Uses not yet matched to a declaration: name and position.
     pub used: Log<(String, u32)>,
 }
@@ -464,7 +548,7 @@ pub(crate) struct Parser {
     pub labels: Vec<Label>,
     /// Names exported before any declaration of them was seen, in the
     /// order met.
-    pub undefined_exports: std::rc::Rc<Vec<(String, u32)>>,
+    pub undefined_exports: std::rc::Rc<UndefinedExports>,
     /// The names the module exports so far.
     pub exports: Names,
     pub scope_stack: Vec<Scope>,
@@ -477,7 +561,7 @@ pub(crate) struct Parser {
     pub depth: u32,
     pub statement_depth: u32,
     /// How deep each kind of `Nest` is.
-    pub nest: [u32; 5],
+    pub nest: [u32; 6],
     /// The expression about to be read is one more link of a `?:` or
     /// `=` chain.
     pub chain_link: bool,
@@ -508,6 +592,9 @@ pub(crate) struct Parser {
     /// per nesting of decorator expressions.
     pub decorator_stack: Vec<(u32, u32)>,
 }
+
+/// acorn's message for running out of stack.
+pub(crate) const STACK_EXHAUSTED: &str = "Not enough stack space to parse input";
 
 /// Deeper nesting than this is reported the way acorn reports running
 /// out of stack. Where acorn itself gives up is up to the JavaScript
@@ -555,9 +642,12 @@ pub(crate) enum Nest {
     Atom,
     /// `namespace A.B.C`: one level for each name.
     Namespace,
+    /// acorn-typescript reads the next token again for each U+0085 it
+    /// steps over.
+    NextLine,
 }
 
-const NEST_LIMITS: [u32; 5] = [984, 3000, 1171, 1875, 3000];
+const NEST_LIMITS: [u32; 6] = [984, 3000, 1171, 1875, 3000, 2140];
 
 /// Runs one level of the parser's recursion with room on the stack:
 /// more is taken from the heap when little is left.
@@ -597,7 +687,7 @@ impl Parser {
             private_name_stack: Vec::new(),
             depth: 0,
             statement_depth: 0,
-            nest: [0; 5],
+            nest: [0; 6],
             chain_link: false,
             depth_costs: Vec::new(),
             unary_depth: 0,
@@ -667,7 +757,7 @@ impl Parser {
     pub(crate) fn stack_exhausted<T>(&self) -> PResult<T> {
         Err(Stop::StackExhausted(Raised {
             pos: self.start as u32,
-            message: "Not enough stack space to parse input".to_string(),
+            message: STACK_EXHAUSTED.to_string(),
             column_of: false,
             no_position: false,
         }))
@@ -760,6 +850,16 @@ impl Parser {
                 .any(|&c| is_new_line(i32::from(c)))
     }
 
+    /// Where the first `*/` at or after `from` starts: acorn's
+    /// `indexOf("*/", from)`.
+    pub(crate) fn comment_close(&self, from: usize) -> Option<usize> {
+        self.input
+            .get(from..)?
+            .windows(2)
+            .position(|pair| pair == [42, 47])
+            .map(|i| from + i)
+    }
+
     /// The length of what `skipWhiteSpace` matches at `from`: white
     /// space and whole comments.
     pub(crate) fn skip_white_space_len(&self, from: usize) -> usize {
@@ -775,13 +875,9 @@ impl Parser {
                     i += 1;
                 }
             } else if c == 47 && self.code_at(i + 1) == 42 {
-                let mut close = i + 2;
-                while close + 1 < len && !(self.input[close] == 42 && self.input[close + 1] == 47) {
-                    close += 1;
-                }
-                if close + 1 >= len {
+                let Some(close) = self.comment_close(i + 2) else {
                     break;
-                }
+                };
                 i = close + 2;
             } else {
                 break;
@@ -839,7 +935,7 @@ impl Parser {
 
     pub(crate) fn declare_name_base(&mut self, name: &str, binding: Bind, pos: u32) -> PResult<()> {
         let mut redeclared = false;
-        let has = |list: &[String]| list.iter().any(|n| n == name);
+        let has = |list: &Names| list.contains(name);
         match binding {
             Bind::Lexical => {
                 let scope = self.current_scope_mut();
@@ -866,7 +962,7 @@ impl Parser {
                 for i in (0..self.scope_stack.len()).rev() {
                     let scope = &mut self.scope_stack[i];
                     let simple_catch_parameter = scope.flags & SCOPE_SIMPLE_CATCH != 0
-                        && scope.lexical.first().is_some_and(|n| n == name);
+                        && scope.lexical.first() == Some(name);
                     if (has(&scope.lexical) && !simple_catch_parameter)
                         || (!Self::treat_functions_as_var_in(scope.flags) && has(&scope.functions))
                     {
@@ -895,8 +991,10 @@ impl Parser {
 
     /// `delete this.undefinedExports[name]`.
     pub(crate) fn forget_undefined_export(&mut self, name: &str) {
-        if self.undefined_exports.iter().any(|(n, _)| n == name) {
-            std::rc::Rc::make_mut(&mut self.undefined_exports).retain(|(n, _)| n != name);
+        if self.undefined_exports.names.contains_key(name) {
+            std::rc::Rc::make_mut(&mut self.undefined_exports)
+                .names
+                .remove(name);
         }
     }
 
@@ -911,12 +1009,16 @@ impl Parser {
             return;
         }
         let top = &self.scope_stack[0];
-        let declared = top.lexical.iter().any(|n| n == name) || top.var.iter().any(|n| n == name);
+        let declared = top.lexical.contains(name) || top.var.contains(name);
         if !declared {
             let undefined = std::rc::Rc::make_mut(&mut self.undefined_exports);
-            match undefined.iter_mut().find(|(n, _)| n == name) {
+            match undefined.names.get_mut(name) {
                 Some(entry) => entry.1 = start,
-                None => undefined.push((name.to_string(), start)),
+                None => {
+                    let added = undefined.added;
+                    undefined.added += 1;
+                    undefined.names.insert(name.to_string(), (added, start));
+                }
             }
         }
     }

@@ -1,10 +1,16 @@
-//! Inputs where the port once answered differently from acorn 8.19.0
-//! or acorn-typescript 1.0.13. What each asserts is what those answer.
+//! Inputs where the port once answered differently from the pinned
+//! acorn or acorn-typescript (`corpus/versions.json`). What each
+//! asserts is what those answer.
 
-use acorn_rs::{Language, Reading, parse, parse_expression_at};
+use acorn_rs::{
+    Language, Position, Reading, parse, parse_expression_at, parse_statement_at, read_expression,
+};
 
 fn error_of<T>(result: Result<T, acorn_rs::SyntaxError>) -> Option<(String, u32)> {
-    result.err().map(|e| (e.message, e.pos))
+    result.err().map(|e| match e.position {
+        Position::Offset(pos) => (e.message, pos),
+        other => panic!("{} at {other:?}, not an offset", e.message),
+    })
 }
 
 fn expression(code: &str) -> Option<(String, u32)> {
@@ -109,4 +115,19 @@ fn private_names_survive_attempted_readings() {
         ts("class A { get #a() { return 1 } m = (x) => x; get #a() { return 2 } }"),
         Some(("Identifier '#a' has already been declared".to_string(), 50))
     );
+}
+
+/// acorn skips a first line starting `#!` whenever it starts reading at
+/// offset zero, not only reading a whole program.
+#[test]
+fn a_hashbang_is_skipped_reading_from_offset_zero() {
+    for language in [Language::JavaScript, Language::TypeScript] {
+        assert_eq!(parse_expression_at("#!x\n1+2", 0, language), Ok(7));
+        assert_eq!(read_expression("#!x\n1+2", language).map(|r| r.0), Ok(7));
+        assert_eq!(parse_statement_at("#!x\nfoo()", 0, language), Ok(9));
+        assert_eq!(
+            error_of(parse_expression_at(" #!x\n1", 1, language)),
+            Some(("Unexpected character '!'".to_string(), 2))
+        );
+    }
 }

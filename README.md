@@ -8,23 +8,23 @@ A Rust port of [acorn](https://github.com/acornjs/acorn) and
 [@sveltejs/acorn-typescript](https://github.com/sveltejs/acorn-typescript),
 carried over function for function.
 
-Currently follows at:
+It follows:
 - **acorn 8.19.0** ([`0e0ece7`](https://github.com/acornjs/acorn/commit/0e0ece7cc7202624d4aca531be4b515b0114b5d0))
-- **@sveltejs/acorn-typescript 1.0.13** ([`5e2e704`](https://github.com/sveltejs/acorn-typescript/commit/5e2e70417f655a70c592b55590ac24f9c995fb11)),
+- **@sveltejs/acorn-typescript 1.0.13** ([`5e2e704`](https://github.com/sveltejs/acorn-typescript/commit/5e2e70417f655a70c592b55590ac24f9c995fb11))
 
 > **This is a partial port.** It validates and finds where things end. It does not build a syntax tree yet. Contributions welcome — see [what's ported](#whats-ported).
 
 ```toml
 [dependencies]
-acorn-rs = "0.1"
+acorn-rs = "0.2"
 ```
 
 ```rust
-use acorn_rs::{Language, Reading, parse, parse_expression_at};
+use acorn_rs::{Language, Position, Reading, parse, parse_expression_at};
 
 let error = parse("let let = 1;", Reading::Module, Language::JavaScript).unwrap_err();
 assert_eq!(error.message, "The keyword 'let' is reserved");
-assert_eq!(error.pos, 4); // byte offset
+assert_eq!(error.position, Position::Offset(4)); // byte offset
 
 assert!(parse("let x: number = 1;", Reading::Module, Language::TypeScript).is_ok());
 
@@ -55,7 +55,7 @@ Settings are fixed to what the Svelte compiler passes acorn: ECMAScript
 | Scopes and early errors: redeclarations, strict-mode names, `await` / `yield` | ☑ | ☑ |
 | Exact messages and positions, and which error comes first | ☑ | ☑ |
 | Upstream quirks that decide what is reported (e.g. errors placed at a column taken for an offset) | ☑ | ☑ |
-| `#!` line at the start of a module | ☑ | ☑ |
+| `#!` line when reading from offset zero | ☑ | ☑ |
 | "Not enough stack space" on deep nesting, instead of a crash | ☑ | ☑ |
 | **Syntax tree output** (ESTree / TS nodes) | ☐ | ☐ |
 | Configurable options: other `ecmaVersion`s, `sourceType: "script"`, `allow*` flags | ☐ | ☐ |
@@ -79,10 +79,12 @@ message and offset, or same end position.
 | :-- | --: | --: | --: |
 | acorn's test suite | 2,896 | 11,584 | **11,584** |
 | acorn-typescript's test suite | 3,188 | 12,752 | **12,752** |
-| Deep nesting (stack limits) | — | 13 | **13** |
-| Reviewed differences (past bugs) | — | 6 | **6** |
+| Deep nesting (stack limits) | — | 15 | **15** |
+| Reviewed differences (past bugs) | — | 7 | **7** |
 | Column offsets, README example | — | 2 | **2** |
-| **Total** | | **24,357** | **24,357** |
+| API (error type, offsets) | — | 3 | **3** |
+| Pins agree across files | — | 1 | **1** |
+| **Total** | | **24,364** | **24,364** |
 
 8 of the corpus checks end in "Not enough stack space". For those, the
 test checks that both sides run out of stack, not the exact offset,
@@ -106,9 +108,15 @@ counts UTF-16 code units, as acorn does.
 | `parse_expression_within(source, pos, end, ..)` | `parseExpressionAt(source.slice(0, end), pos)` |
 | `read_expression(source, ..)` | `parseExpressionAt(source, 0)`, plus where the next token starts |
 | `parse_statement_at(source, pos, ..)` | one top-level statement at `pos` (Svelte's `parse_statement_at`) |
-| `closing_brace(text)` | the `}` acorn's tokenizer would close a `{ … }` tag at |
+| `closing_brace(text)` | the `}` acorn's tokenizer would close a `{ … }` tag at, or why there is none (`NoClosingBrace`) |
 | `regexp_pattern_error(pattern, flags)` | acorn's regex validator |
-| `column_as_offset(source, pos)` | where acorn-typescript's column-as-offset errors point |
+| `column_as_offset(source, pos)` | where acorn-typescript's column-as-offset errors (`Position::ColumnOf`) point |
+| `STACK_EXHAUSTED` | acorn's message for input nested deeper than it has stack for |
+
+Errors are a `SyntaxError`: acorn's `message` and a `position`, which
+is a byte offset, a column taken for an offset, or unknown. It
+implements `std::error::Error`. An offset past the end of the text reads
+from its end.
 
 `Language` is `JavaScript` (acorn) or `TypeScript` (acorn with the
 acorn-typescript plugin). `Reading::Module` reads a file from its start.

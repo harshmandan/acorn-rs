@@ -45,9 +45,12 @@ pub(crate) fn pattern_error(pattern: &[u16], flags: &str) -> Option<&'static str
 /// The reason given for a pattern nested deeper than acorn has stack
 /// for. It is no fault of the pattern: acorn reports it without the
 /// `Invalid regular expression` wording, at the literal's start.
-pub(crate) const STACK_EXHAUSTED: &str = "Not enough stack space to parse input";
+pub(crate) use crate::state::STACK_EXHAUSTED;
 
 /// About how deep groups nest before acorn runs out of stack in Node 24.
+/// Every kind of group and class reaches about this far once the engine
+/// has warmed up. Before that, and from run to run, the limit moves by
+/// hundreds of levels whatever the kind, so one number serves.
 const MAX_GROUP_DEPTH: u32 = 2500;
 
 /// A reason to reject the pattern.

@@ -3,7 +3,7 @@
 
 use crate::identifier::{is_identifier_char, is_identifier_start};
 use crate::regexp;
-use crate::state::{PResult, Parser, Stop, is_new_line};
+use crate::state::{Nest, PResult, Parser, Stop, is_new_line};
 use crate::token::{Ctx, Tok};
 
 fn code_point_to_units(code: u32, out: &mut Vec<u16>) {
@@ -244,16 +244,9 @@ impl Parser {
 
     fn skip_block_comment(&mut self) -> PResult<()> {
         self.pos += 2;
-        let mut end = self.pos;
-        loop {
-            if end + 1 >= self.input.len() {
-                return self.raise(self.pos - 2, "Unterminated comment");
-            }
-            if self.input[end] == 42 && self.input[end + 1] == 47 {
-                break;
-            }
-            end += 1;
-        }
+        let Some(end) = self.comment_close(self.pos) else {
+            return self.raise(self.pos - 2, "Unterminated comment");
+        };
         self.pos = end + 2;
         Ok(())
     }
@@ -299,10 +292,15 @@ impl Parser {
     }
 
     fn finish_token(&mut self, ty: Tok, value: String) {
+        self.value = value;
+        self.finish_token_with_value_set(ty);
+    }
+
+    /// `finishToken` once `value` holds the token's value.
+    fn finish_token_with_value_set(&mut self, ty: Tok) {
         self.end = self.pos;
         let prev = self.ty;
         self.ty = ty;
-        self.value = value;
         // acorn-typescript reads ahead without the tokens' effect on
         // the context.
         if !self.is_lookahead {
@@ -316,9 +314,17 @@ impl Parser {
     }
 
     pub(crate) fn finish_op(&mut self, ty: Tok, size: usize) {
-        let text = self.slice(self.pos, self.pos + size);
+        // The operator is written into the value the last token left,
+        // which then needs no allocation of its own.
+        let to = (self.pos + size).min(self.input.len());
+        let from = self.pos.min(to);
+        self.value.clear();
+        self.value.extend(
+            char::decode_utf16(self.input[from..to].iter().copied())
+                .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)),
+        );
         self.pos += size;
-        self.finish_token(ty, text);
+        self.finish_token_with_value_set(ty);
     }
 
     fn read_token_dot(&mut self) -> PResult<()> {
@@ -479,7 +485,7 @@ impl Parser {
             // acorn does not skip: it is stepped over here.
             if code == 133 {
                 self.pos += 1;
-                return self.next_token();
+                return self.nested(Nest::NextLine, Self::next_token);
             }
             // In a type every `<` and `>` stands alone.
             if self.in_type && (code == 62 || code == 60) {
@@ -951,7 +957,10 @@ impl Parser {
     /// Reads a word, escapes decoded. Sets `contains_esc`.
     pub(crate) fn read_word1(&mut self) -> PResult<String> {
         self.contains_esc = false;
+        // The units of a word with escapes; one without is sliced from
+        // the input whole.
         let mut word: Vec<u16> = Vec::new();
+        let word_start = self.pos;
         let mut first = true;
         let mut chunk_start = self.pos;
         while self.pos < self.input.len() {
@@ -987,6 +996,9 @@ impl Parser {
             first = false;
         }
         let end = self.pos.min(self.input.len());
+        if !self.contains_esc {
+            return Ok(self.slice(word_start, end));
+        }
         word.extend_from_slice(&self.input[chunk_start.min(end)..end]);
         Ok(String::from_utf16_lossy(&word))
     }

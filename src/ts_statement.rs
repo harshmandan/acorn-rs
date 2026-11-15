@@ -617,7 +617,7 @@ impl Parser {
         }
 
         self.private_name_stack.push(PrivateNames {
-            declared: crate::state::Log::new(),
+            declared: std::rc::Rc::default(),
             used: crate::state::Log::new(),
         });
         let mut had_constructor = false;
